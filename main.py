@@ -4,6 +4,8 @@
     python main.py --question Q2_linear                     # Q2.(b): base case + c^L sweep
     python main.py --question Q2_quadratic --sweep-cq       # Q2.(c): base case + c^Q sweep
     python main.py --question Q2_quadratic --q2e --q2e-prices   # Q2.(e) checks, base case, price experiment
+    python main.py --question Q3 --q3                      # Q3 without battery
+    python main.py --question Q3_battery --q3              # Q3 with battery storage
     python main.py --q2a                                    # Q2.(a) special-case check
     python main.py --q2d                                    # Q2.(d) multi-model comparison
     python main.py --scenarios                              # also run the example sensitivity scenarios
@@ -27,6 +29,7 @@ from src.model import FlexibleConsumerModel, Results
 from src.model_q2b import LinearDisutilityModel
 from src.model_q2c import QuadraticDisutilityModel
 from src.model_q2e import SustainedDisutilityModel
+from src.model_q3 import BatteryModel
 from src.plotting import plot_duals, plot_inputs, plot_scenario_comparison, plot_schedule
 from src.q2_analysis import sweep
 from src.q2_experiments import run_part_a, run_part_b, run_part_d
@@ -201,6 +204,51 @@ def run_q2e_price_structure(out: Path, rho: float = 0.8, c_S: float = 0.36,
     return df
 
 
+# ------------------------------------------------- Q3 -----------------------------------------------------
+
+
+def run_q3(question: str, out: Path, show: bool) -> Results:
+    """Q3: quadratic-disutility model, optionally including battery storage."""
+    data = load_question(question)
+    print(data.summary(), "\n")
+
+    model_class = (
+        BatteryModel if question == "Q3_battery" else QuadraticDisutilityModel
+    )
+    model = model_class(data).build()
+
+    if data.min_daily_energy_kWh is not None:
+        model.con["min_daily_energy"] = model.m.addConstr(
+            sum(model.var["load"][t] for t in model.T)
+            >= data.min_daily_energy_kWh,
+            name="min_daily_energy",
+        )
+
+    results = model.solve()
+
+    print(results, "\n")
+    print(
+        "Minimum daily energy dual:",
+        results.duals.get("min_daily_energy", None),
+    )
+    print(
+        {k: round(v, 3) for k, v in model.breakdown(results).items()},
+        "\n",
+    )
+
+    results.save(out, tag="Q3")
+    plot_schedule(results, data, save_to=out / "schedule_Q3.png")
+    plot_duals(results, data, save_to=out / "duals_Q3.png")
+
+    if show:
+        plt.show()
+
+    return results
+
+
+# ------------------------------------------------- MAIN -----------------------------------------------------
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--question", default="Q1_caseA", choices=list_questions(), help="data case to use")
@@ -211,12 +259,18 @@ def main() -> None:
     parser.add_argument("--q2d", action="store_true", help="Q2.(d): compare Q1 utility, linear and quadratic models")
     parser.add_argument("--q2e", action="store_true", help="run the checks and the base case of Q2.(e)")
     parser.add_argument("--q2e-prices", action="store_true", help="run the price-structure experiment of Q2.(e).iv")
+    parser.add_argument("--q3", action="store_true", help="run Q3, including battery storage for Q3_battery")
     args = parser.parse_args()
 
     out = RESULTS_DIR / args.question
     out.mkdir(parents=True, exist_ok=True)
     if not args.show:
         matplotlib.use("Agg")
+
+    if args.q3:
+        run_q3(args.question, out, args.show)
+        print(f"\nOutputs written to {out}")
+        return
 
     if args.q2a or args.q2d:                       # parts of Q2 that compare several models
         cmp_out = RESULTS_DIR / "Q2_comparison"
@@ -228,12 +282,7 @@ def main() -> None:
         print(f"\nOutputs written to {cmp_out}")
         return
 
-    if args.question == "Q2_linear":               # Q2.(b): base case + sweep of c^L
-        run_part_b(out)
-        print(f"\nOutputs written to {out}")
-        return
-
-    if args.question == "Q2_quadratic":
+    if args.question == "Q2_quadratic":             # Q2.(c): base case + sweep of c^Q
         run_q2_quadratic(args.question, out, args.show)
         if args.sweep_cq:
             run_sweep_cQ(out)
@@ -244,6 +293,11 @@ def main() -> None:
             run_q2e_price_structure(out)
         print(f"\nOutputs written to {out}")
         return
+
+    if args.question == "Q2_linear":               # Q2.(b): base case + sweep of c^L
+            run_part_b(out)
+            print(f"\nOutputs written to {out}")
+            return
 
     base = run_base_case(args.question, out, args.show)
     if args.scenarios and base is not None:
