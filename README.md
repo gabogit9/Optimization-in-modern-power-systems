@@ -231,3 +231,13 @@ Commands:
 - Q2e: `--question Q2_quadratic --q2e --q2e-prices`
  
 Outputs go to `results` folder.
+
+## 7. Group contributions
+
+
+| Contributor               | Student ID | Part          |
+|---------------------------|------------|---------------|
+| Tobias Christian Lintrup  | -------    | Q3            |
+| Gabriel Tovar Montaño     | s253197    | Q1            |
+| Sri Bagus Noegroho        | s260082    | Q2a, Q2c, Q2e |
+| Kushagra Kapoor           | s252693    | Q2a, Q2b, Q2d |
