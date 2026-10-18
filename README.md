@@ -224,20 +224,21 @@ your report. In practice:
 
 Commands: 
 `python main.py`
-- Q1: `--question Q1_caseA|Q1_caseB`
+- Q1:  `--question Q1_caseA|Q1_caseB`
 - Q2b: `--question Q2_linear`
 - Q2c: `--question Q2_quadratic --sweep-cq`
 - Q2d: `--q2d`
 - Q2e: `--question Q2_quadratic --q2e --q2e-prices`
+- Q3:  `--question Q3 --q3`
+- Q3g: `--question Q3_battery --q3`
  
 Outputs go to `results` folder.
 
 ## 7. Group contributions
 
-
-| Contributor               | Student ID | Part          |
-|---------------------------|------------|---------------|
-| Tobias Christian Lintrup  | -------    | Q3            |
-| Gabriel Tovar Montaño     | s253197    | Q1            |
-| Sri Bagus Noegroho        | s260082    | Q2a, Q2c, Q2e |
-| Kushagra Kapoor           | s252693    | Q2a, Q2b, Q2d |
+| Contributor               | Student ID | Part              |
+|---------------------------|------------|-------------------|
+| Tobias Christian Lintrup  | s223875    | Q3                |
+| Gabriel Tovar Montaño     | s253197    | Q1                |
+| Sri Bagus Noegroho        | s260082    | Q2a,c,e, Q3g.i,ii |
+| Kushagra Kapoor           | s252693    | Q2a,b,d           |
