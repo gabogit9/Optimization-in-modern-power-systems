@@ -1,0 +1,444 @@
+"""Entry point for Q1, Q2 and Q3."""
+
+from __future__ import annotations
+
+import argparse
+from dataclasses import replace
+from pathlib import Path
+
+import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+
+from src.data_loader import load_question, list_questions
+from src.model import FlexibleConsumerModel, Results
+from src.model_q2b import LinearDisutilityModel
+from src.model_q2c import QuadraticDisutilityModel
+from src.model_q2e import SustainedDisutilityModel
+from src.plotting import (
+    plot_duals,
+    plot_inputs,
+    plot_scenario_comparison,
+    plot_schedule,
+)
+from src.q2_analysis import sweep
+from src.q2_experiments import run_part_a, run_part_b, run_part_d
+from src.scenarios import scale_prices, scale_pv, set_tariffs
+
+RESULTS_DIR = Path(__file__).resolve().parent / "results"
+
+
+# ------------------------------------------------- Q1 -------------------------------------------------
+
+def run_base_case(
+    question: str,
+    out: Path,
+    show: bool,
+) -> Results | None:
+    data = load_question(question)
+    print(data.summary(), "\n")
+    plot_inputs(data, save_to=out / "inputs.png")
+
+    model = FlexibleConsumerModel(data).build()
+
+    try:
+        results = model.solve()
+    except NotImplementedError as e:
+        print(f"[skipped] {e}")
+        return None
+
+    print(results, "\n")
+    results.save(out)
+    plot_schedule(results, data, save_to=out / "schedule.png")
+    plot_duals(results, data, save_to=out / "duals.png")
+
+    if show:
+        plt.show()
+
+    return results
+
+
+def run_scenarios(question: str, out: Path) -> dict[str, Results]:
+    """Example sensitivity analysis."""
+    base = load_question(question)
+
+    scenarios = {
+        "base": base,
+        "flat_prices": scale_prices(base, factor=0.0, keep_mean=True),
+        "double_spread": scale_prices(base, factor=2.0, keep_mean=True),
+        "no_tariffs": set_tariffs(
+            base, import_tariff=0.0, export_tariff=0.0
+        ),
+        "no_pv": scale_pv(base, factor=0.0),
+    }
+
+    runs: dict[str, Results] = {}
+
+    for name, data in scenarios.items():
+        results = FlexibleConsumerModel(data).build().solve()
+        results.save(out, tag=name)
+        runs[name] = results
+
+        print(
+            f"{name:>14}: cost {results.objective:8.2f} DKK"
+            f" | import {results.hourly['import'].sum():5.1f} kWh"
+            f" | export {results.hourly['export'].sum():5.1f} kWh"
+        )
+
+    plot_scenario_comparison(
+        runs, "objective", save_to=out / "scenarios_cost.png"
+    )
+
+    return runs
+
+
+# ------------------------------------------------- Q2 (C) -------------------------------------------------
+
+def run_q2_quadratic(
+    question: str,
+    out: Path,
+    show: bool,
+) -> Results:
+    """Q2(c): quadratic-disutility model."""
+    data = load_question(question)
+    print(data.summary(), "\n")
+    plot_inputs(data, save_to=out / "inputs.png")
+
+    model = QuadraticDisutilityModel(data).build()
+    results = model.solve()
+
+    print(results, "\n")
+    print(
+        {k: round(v, 3) for k, v in model.breakdown(results).items()},
+        "\n",
+    )
+
+    results.save(out)
+    plot_schedule(results, data, save_to=out / "schedule.png")
+    plot_duals(results, data, save_to=out / "duals.png")
+
+    if show:
+        plt.show()
+
+    return results
+
+
+def run_sweep_cQ(out: Path, values=None) -> pd.DataFrame:
+    """Q2(c): sweep the quadratic-disutility coefficient."""
+    if values is None:
+        values = np.unique(np.append(np.logspace(-1.3, 1, 9), 1.0))
+
+    base = load_question("Q2_quadratic")
+
+    df, loads = sweep(
+        "quadratic",
+        base,
+        "quadratic_disutility",
+        values,
+        "cQ",
+    )
+
+    df.to_csv(out / "sweep_cQ.csv", index=False)
+    loads.rename(
+        columns=lambda c: f"cQ={c:.3g}"
+    ).to_csv(out / "sweep_cQ_load.csv")
+
+    print(df.round(3).to_string(index=False))
+
+    return df
+
+
+# ------------------------------------------------- Q2 (E) -------------------------------------------------
+
+def check_q2e(question: str = "Q2_quadratic") -> None:
+    """Validate the cumulative-disutility model."""
+    data = load_question(question)
+
+    res_c = QuadraticDisutilityModel(data).build().solve()
+    res_e = SustainedDisutilityModel(
+        data, rho=0.0, c_S=1.0
+    ).build().solve()
+
+    assert abs(res_e.objective - res_c.objective) < 1e-6
+    assert (
+        res_e.hourly["load"] - res_c.hourly["load"]
+    ).abs().max() < 1e-6
+
+    print(
+        "Check 1 passed: rho = 0 reproduces Q2(c) "
+        f"(objective {res_c.objective:.4f} DKK)"
+    )
+
+    model = SustainedDisutilityModel(data).build()
+    res = model.solve()
+    breakdown = model.breakdown(res)
+
+    assert abs(breakdown["total"] - res.objective) < 1e-6
+
+    print("Check 2 passed: breakdown total equals solver objective\n")
+
+
+def run_q2e_base(
+    out: Path,
+    show: bool,
+    rho: float | None = None,
+    c_S: float | None = None,
+) -> Results:
+    """Q2(e): cumulative-disutility base case."""
+    data = load_question("Q2_quadratic")
+
+    model = SustainedDisutilityModel(
+        data, rho=rho, c_S=c_S
+    ).build()
+
+    results = model.solve()
+
+    print(f"rho = {model.rho}, c_S = {model.c_S:.4f}")
+    print(results, "\n")
+    print(
+        {k: round(v, 3) for k, v in model.breakdown(results).items()},
+        "\n",
+    )
+
+    results.save(out, tag="Q2e")
+    plot_schedule(results, data, save_to=out / "schedule_Q2e.png")
+
+    if show:
+        plt.show()
+
+    return results
+
+
+def run_q2e_price_structure(
+    out: Path,
+    rho: float = 0.8,
+    c_S: float = 0.36,
+    c_L: float = 1.8,
+    c_Q: float = 1.0,
+    delta: float = 0.5,
+    blocks=(1, 2, 3, 4, 6, 12),
+) -> pd.DataFrame:
+    """Q2(e): compare models under different price structures."""
+    base = load_question("Q2_quadratic")
+    n = base.n_hours
+
+    ref = np.full(n, 3.0)
+    mean_price = float(base.energy_price.mean())
+    zeros = np.zeros(n)
+
+    flat = replace(
+        base,
+        reference_load=ref,
+        pv_profile=zeros,
+        pv_available=zeros,
+        linear_disutility=c_L,
+        quadratic_disutility=c_Q,
+    )
+
+    models = {
+        "linear": lambda d: LinearDisutilityModel(d),
+        "quadratic": lambda d: QuadraticDisutilityModel(d),
+        "cumulative": lambda d: SustainedDisutilityModel(
+            d, rho=rho, c_S=c_S
+        ),
+    }
+
+    rows = []
+
+    for start, sign in (("high first", 1.0), ("low first", -1.0)):
+        for k in blocks:
+            wave = np.where(
+                (np.arange(n) // k) % 2 == 0, 1.0, -1.0
+            )
+            price = mean_price + sign * delta * wave
+            data = replace(flat, energy_price=price)
+
+            ref_cost = float(
+                ((price + data.import_tariff) * ref).sum()
+            )
+
+            for name, make in models.items():
+                res = make(data).build().solve()
+                dev = res.hourly["load"] - ref
+
+                rows.append({
+                    "start": start,
+                    "block": k,
+                    "model": name,
+                    "surplus": -res.objective,
+                    "flex_value": ref_cost - res.objective,
+                    "abs_dev": float(dev.abs().sum()),
+                    "hours_up": int((dev > 1e-6).sum()),
+                    "hours_down": int((dev < -1e-6).sum()),
+                })
+
+    df = pd.DataFrame(rows)
+    df.to_csv(out / "experiment_price_structure.csv", index=False)
+
+    print(
+        df.pivot_table(
+            index=["start", "block"],
+            columns="model",
+            values="surplus",
+        ).round(2).to_string()
+    )
+
+    print(
+        df.pivot_table(
+            index=["start", "block"],
+            columns="model",
+            values="abs_dev",
+        ).round(2).to_string()
+    )
+
+    fig, axes = plt.subplots(1, 2, figsize=(10.5, 3.8), sharey=True)
+
+    for ax, start in zip(axes, ("high first", "low first")):
+        for name in models:
+            q = df[(df.start == start) & (df.model == name)]
+            ax.plot(q.block, q.surplus, "o-", label=name)
+
+        ax.set_xscale("log", base=2)
+        ax.set_xticks(list(blocks))
+        ax.set_xticklabels(list(blocks))
+        ax.set_xlabel("price block length [h]")
+        ax.set_title(start)
+        ax.legend(fontsize=8)
+
+    axes[0].set_ylabel("daily surplus [DKK]")
+    fig.tight_layout()
+    fig.savefig(out / "experiment_price_structure.png", dpi=150)
+
+    return df
+
+
+# ------------------------------------------------- Q3 -------------------------------------------------
+
+def run_q3(
+    question: str,
+    out: Path,
+    show: bool,
+) -> Results:
+    """Q3: quadratic-disutility model with minimum daily energy."""
+    data = load_question(question)
+    print(data.summary(), "\n")
+
+    model = QuadraticDisutilityModel(data).build()
+
+    # Add the minimum daily energy requirement for Q3.
+    if data.min_daily_energy_kWh is not None:
+        model.con["min_daily_energy"] = model.m.addConstr(
+            sum(model.var["load"][t] for t in model.T)
+            >= data.min_daily_energy_kWh,
+            name="min_daily_energy",
+        )
+
+    results = model.solve()
+
+    print(results, "\n")
+    print(
+        "Minimum daily energy dual:",
+        results.duals.get("min_daily_energy", None),
+    )
+
+    print(
+        {k: round(v, 3) for k, v in model.breakdown(results).items()},
+        "\n",
+    )
+
+    results.save(out, tag="Q3")
+    plot_schedule(results, data, save_to=out / "schedule_Q3.png")
+    plot_duals(results, data, save_to=out / "duals_Q3.png")
+
+    if show:
+        plt.show()
+
+    return results
+
+
+# ------------------------------------------------- MAIN -------------------------------------------------
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+
+    parser.add_argument(
+        "--question",
+        default="Q1_caseA",
+        choices=list_questions(),
+        help="data case to use",
+    )
+    parser.add_argument("--scenarios", action="store_true")
+    parser.add_argument("--show", action="store_true")
+    parser.add_argument("--sweep-cq", action="store_true")
+    parser.add_argument("--q2a", action="store_true")
+    parser.add_argument("--q2d", action="store_true")
+    parser.add_argument("--q2e", action="store_true")
+    parser.add_argument("--q2e-prices", action="store_true")
+    parser.add_argument("--q3", action="store_true", help="Run Q3")
+
+    args = parser.parse_args()
+
+    out = RESULTS_DIR / args.question
+    out.mkdir(parents=True, exist_ok=True)
+
+    if not args.show:
+        matplotlib.use("Agg")
+
+    # Q3
+    if args.q3:
+        run_q3(args.question, out, args.show)
+        print(f"\nOutputs written to {out}")
+        return
+
+    # Q2(a) and Q2(d)
+    if args.q2a or args.q2d:
+        cmp_out = RESULTS_DIR / "Q2_comparison"
+        cmp_out.mkdir(parents=True, exist_ok=True)
+
+        if args.q2a:
+            run_part_a(cmp_out)
+
+        if args.q2d:
+            run_part_d(cmp_out)
+
+        print(f"\nOutputs written to {cmp_out}")
+        return
+
+    # Q2(b)
+    if args.question == "Q2_linear":
+        run_part_b(out)
+        print(f"\nOutputs written to {out}")
+        return
+
+    # Q2(c) and Q2(e)
+    if args.question == "Q2_quadratic":
+        run_q2_quadratic(args.question, out, args.show)
+
+        if args.sweep_cq:
+            run_sweep_cQ(out)
+
+        if args.q2e:
+            check_q2e(args.question)
+            run_q2e_base(out, args.show)
+
+        if args.q2e_prices:
+            run_q2e_price_structure(out)
+
+        print(f"\nOutputs written to {out}")
+        return
+
+    # Q1
+    base = run_base_case(args.question, out, args.show)
+
+    if args.scenarios and base is not None:
+        run_scenarios(args.question, out)
+
+    print(f"\nOutputs written to {out}")
+
+
+if __name__ == "__main__":
+    main()
