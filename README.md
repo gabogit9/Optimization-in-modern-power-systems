@@ -221,24 +221,25 @@ your report. In practice:
 | `src/model_q2e.py` | 2.(e) cumulative (non-separable) disutility, `rho`, `c_S` |
 | `src/q2_analysis.py` | closed-form 2.(b).ii hypotheses, `daily_metrics`, `solve_with_metrics`, `sweep` |
 | `src/q2_plots.py`, `src/q2_experiments.py` | Q2 figures and the 2.(a)/(b)/(d) experiments |
+| `src/model_q3.py`  | 3.(g) added battery in the model, based on 2.(c) QP |
 
-Commands: 
-`python main.py`
-- Q1:  `--question Q1_caseA|Q1_caseB`
-- Q2b: `--question Q2_linear`
-- Q2c: `--question Q2_quadratic --sweep-cq`
-- Q2d: `--q2d`
-- Q2e: `--question Q2_quadratic --q2e --q2e-prices`
-- Q3:  `--question Q3 --q3`
-- Q3g: `--question Q3_battery --q3`
- 
+Commands:
+```bash
+python main.py --question Q1_caseA | Q1_caseB              # Q1
+python main.py --question Q2_linear| Q2_quadratic          # Q2
+python main.py --question Q2_quadratic --sweep-cq          # Q2c: sweep c_q
+python main.py --q2d                                       # Q2d
+python main.py --question Q2_quadratic --q2e --q2e-prices  # Q2e: prices
+python main.py --question Q3 --q3                          # Q3
+python main.py --question Q3_battery --q3                  # Q3g: battery
+ ```
 Outputs go to `results` folder.
 
 ## 7. Group contributions
 
-| Contributor               | Student ID | Part              |
-|---------------------------|------------|-------------------|
-| Tobias Christian Lintrup  | s223875    | Q3                |
-| Gabriel Tovar Montaño     | s253197    | Q1                |
-| Sri Bagus Noegroho        | s260082    | Q2a,c,e, Q3g.i,ii |
-| Kushagra Kapoor           | s252693    | Q2a,b,d           |
+| Contributor               | Part              |
+|---------------------------|-------------------|
+| Tobias Christian Lintrup  | Q3                |
+| Gabriel Tovar Montaño     | Q1                |
+| Sri Bagus Noegroho        | Q2a,c,e, Q3g.i,ii |
+| Kushagra Kapoor           | Q2a,b,d           |
